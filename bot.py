@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
@@ -70,10 +70,48 @@ def fetch_commit_activity(username, token):
     return []
 
 # Create a contribution graph image
-def create_contribution_graph(activity_data, output_file="contribution_graph.png"):
-    if not activity_data:
-        print("No activity data available to create the graph.")
-        return
+# def create_contribution_graph(activity_data, github_username, output_file=None):
+#     if not activity_data:
+#         print("No activity data available to create the graph.")
+#         return
+
+#     box_size, padding = 20, 5
+#     cols, rows = 53, 7
+#     img_width, img_height = cols * (box_size + padding) + padding, rows * (box_size + padding) + padding
+#     image = Image.new("RGB", (img_width, img_height), "white")
+#     draw = ImageDraw.Draw(image)
+
+#     colors = ["#ebedf0", "#c6e48b", "#7bc96f", "#239a3b", "#196127"]
+#     daily_contributions = [day for week in activity_data for day in week]
+
+#     for i, count in enumerate(daily_contributions):
+#         week, day = divmod(i, 7)
+#         x = padding + week * (box_size + padding)
+#         y = padding + day * (box_size + padding)
+#         color = colors[min(count, len(colors) - 1)]
+#         draw.rectangle([x, y, x + box_size, y + box_size], fill=color)
+
+#     # Create a dynamic file name with username, date, and hour
+#     now = datetime.now(pytz.timezone('Asia/Bangkok'))  # Time in Thailand timezone
+#     output_filename = f"{github_username}'s {now.strftime('%Y-%m-%d %H')} contribution graph.png"
+#     output_path = os.path.join(IMAGE_PATH, output_filename)
+    
+#     image.save(output_path)
+#     print(f"Contribution graph saved at {output_path}")
+    
+#     # Set the graph to be deleted after 12 hours
+#     delete_time = now + timedelta(hours=12)
+#     asyncio.create_task(delete_file_after_time(output_path, delete_time))
+
+#     return output_path
+
+# Create a contribution graph image
+def create_contribution_graph(activity_data, github_username, output_file=None):
+    # Handle the case when no contributions are available (i.e., activity_data is empty)
+    if not activity_data or all(sum(week) == 0 for week in activity_data):
+        print("No activity data available. Creating an empty contribution graph.")
+        # Create an empty contribution graph with all boxes in the lightest color
+        return create_empty_contribution_graph(github_username)
 
     box_size, padding = 20, 5
     cols, rows = 53, 7
@@ -91,10 +129,65 @@ def create_contribution_graph(activity_data, output_file="contribution_graph.png
         color = colors[min(count, len(colors) - 1)]
         draw.rectangle([x, y, x + box_size, y + box_size], fill=color)
 
-    output_path = os.path.join(IMAGE_PATH, output_file)
+    # Create a dynamic file name with username, date, and hour
+    now = datetime.now(pytz.timezone('Asia/Bangkok'))  # Time in Thailand timezone
+    output_filename = f"{github_username}'s {now.strftime('%Y-%m-%d %H')} contribution graph.png"
+    output_path = os.path.join(IMAGE_PATH, output_filename)
+    
     image.save(output_path)
     print(f"Contribution graph saved at {output_path}")
+    
+    # Set the graph to be deleted after 12 hours
+    delete_time = now + timedelta(hours=12)
+    asyncio.create_task(delete_file_after_time(output_path, delete_time))
+
     return output_path
+
+# Create an empty contribution graph
+def create_empty_contribution_graph(github_username):
+    box_size, padding = 20, 5
+    cols, rows = 53, 7
+    img_width, img_height = cols * (box_size + padding) + padding, rows * (box_size + padding) + padding
+    image = Image.new("RGB", (img_width, img_height), "white")
+    draw = ImageDraw.Draw(image)
+
+    # Set all boxes to the lightest color to represent no contributions
+    colors = ["#ebedf0"]  # Light color for no activity
+    daily_contributions = [0] * (cols * rows)  # No contributions
+
+    for i, count in enumerate(daily_contributions):
+        week, day = divmod(i, 7)
+        x = padding + week * (box_size + padding)
+        y = padding + day * (box_size + padding)
+        color = colors[min(count, len(colors) - 1)]
+        draw.rectangle([x, y, x + box_size, y + box_size], fill=color)
+
+    # Create a dynamic file name with username, date, and hour
+    now = datetime.now(pytz.timezone('Asia/Bangkok'))
+    output_filename = f"{github_username}'s {now.strftime('%Y-%m-%d %H')} empty contribution graph.png"
+    output_path = os.path.join(IMAGE_PATH, output_filename)
+    
+    image.save(output_path)
+    print(f"Empty contribution graph saved at {output_path}")
+    
+    # Set the graph to be deleted after 12 hours
+    delete_time = now + timedelta(hours=12)
+    asyncio.create_task(delete_file_after_time(output_path, delete_time))
+
+    return output_path
+
+
+# Delete file after a specified time
+async def delete_file_after_time(file_path, delete_time):
+    now = datetime.now(pytz.timezone('Asia/Bangkok'))
+    time_diff = (delete_time - now).total_seconds()
+    if time_diff > 0:
+        await asyncio.sleep(time_diff)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Deleted file: {file_path}")
+    else:
+        print(f"Delete time has already passed for {file_path}")
 
 # Generate notification using Meta AI API
 def generate_notification(category, username, harshness):
@@ -126,112 +219,6 @@ def get_notification(category):
     return row
 
 # Check today's contribution from GitHub
-# def check_today_contribution(username, token):
-#     url = f"https://api.github.com/users/{username}/events/public"
-#     headers = {"Authorization": f"token {token}"}
-#     response = requests.get(url, headers=headers)
-
-#     if response.status_code == 200:
-#         today_date = datetime.now().strftime('%Y-%m-%d')  # Get today's date in 'YYYY-MM-DD' format
-#         events = response.json()
-        
-#         # Count commits for today only
-#         commit_count = sum(1 for event in events if event['type'] == 'PushEvent' and event['created_at'][:10] == today_date)
-        
-#         return commit_count
-#     return 0
-
-# def check_today_contribution(username, token):
-#     url = "https://api.github.com/graphql"
-#     headers = {"Authorization": f"Bearer {token}"}
-    
-#     query = """
-#     {
-#       viewer {
-#         contributionsCollection {
-#           contributionCalendar {
-#             weeks {
-#               contributionDays {
-#                 contributionCount
-#               }
-#             }
-#           }
-#         }
-#       }
-#     }
-#     """
-    
-#     response = requests.post(url, json={"query": query}, headers=headers)
-    
-#     if response.status_code == 200:
-#         data = response.json()
-#         # Extract the weeks' contribution counts
-#         weeks = data['data']['viewer']['contributionsCollection']['contributionCalendar']['weeks']
-        
-#         # Get today's date and determine which day of the week it is (0 = Sunday, 6 = Saturday)
-#         today_date = datetime.now()
-#         today_day_of_week = today_date.weekday()  # 0 (Monday) to 6 (Sunday)
-#         today_date_str = today_date.strftime('%Y-%m-%d')
-
-#         # Loop through the weeks and find the contributions for today
-#         commit_count = 0
-#         for week in weeks:
-#             for day in week['contributionDays']:
-#                 # Check if this is the current day (matching today_day_of_week)
-#                 if today_day_of_week == week['contributionDays'].index(day):
-#                     commit_count += day['contributionCount']
-
-#         # Return total commits for today
-#         return commit_count
-#     else:
-#         print(f"Error fetching contribution data: {response.status_code}")
-#         return 0
-
-# def check_today_contribution(username, token):
-#     url = "https://api.github.com/graphql"
-#     headers = {"Authorization": f"Bearer {token}"}
-    
-#     query = """
-#     {
-#       viewer {
-#         contributionsCollection {
-#           contributionCalendar {
-#             weeks {
-#               contributionDays {
-#                 contributionCount
-#                 date
-#               }
-#             }
-#           }
-#         }
-#       }
-#     }
-#     """
-    
-#     response = requests.post(url, json={"query": query}, headers=headers)
-    
-#     if response.status_code == 200:
-#         data = response.json()
-#         weeks = data['data']['viewer']['contributionsCollection']['contributionCalendar']['weeks']
-        
-#         # Get today's date and determine which day of the week it is
-#         today_date = datetime.now()
-#         today_date_str = today_date.strftime('%Y-%m-%d')  # Get today's date in 'YYYY-MM-DD'
-        
-#         commit_count = 0
-#         for week in weeks:
-#             for day in week['contributionDays']:
-#                 # If the day's date matches today's date, add the contribution count
-#                 if day['date'][:10] == today_date_str:
-#                     commit_count += day['contributionCount']
-        
-#         # Return total commits for today
-#         return commit_count
-#     else:
-#         print(f"Error fetching contribution data: {response.status_code}")
-#         return 0
-
-
 def check_today_contribution(username, token):
     url = "https://api.github.com/graphql"
     headers = {"Authorization": f"Bearer {token}"}
@@ -264,20 +251,15 @@ def check_today_contribution(username, token):
         today_date = datetime.now(thailand_timezone)  # Get local time in Thailand
         today_date_str = today_date.strftime('%Y-%m-%d')  # Get today's date in 'YYYY-MM-DD'
         
-        # Log the date being used
         print(f"Today's date (Thailand time): {today_date_str}")
         
         commit_count = 0
         for week in weeks:
             for day in week['contributionDays']:
-                # Log the contribution days and their date for debugging
                 print(f"Checking day: {day['date'][:10]} with contribution count: {day['contributionCount']}")
-                
-                # Adjust the date to match today
                 if day['date'][:10] == today_date_str:
                     commit_count += day['contributionCount']
 
-        # Log the total commit count
         print(f"Total commits today: {commit_count}")
         
         return commit_count
@@ -285,14 +267,11 @@ def check_today_contribution(username, token):
         print(f"Error fetching contribution data: {response.status_code}")
         return 0
 
-
 # Send Telegram notification
 async def send_telegram_notification(chat_id, message, context, image_path=None):
     try:
-        # Send text message
         await context.bot.send_message(chat_id=chat_id, text=message)
         
-        # Send image if provided
         if image_path:
             with open(image_path, 'rb') as img_file:
                 await context.bot.send_photo(chat_id=chat_id, photo=img_file)
@@ -306,57 +285,90 @@ def get_github_username_and_token_from_db(chat_id):
     cursor.execute("SELECT github_username, github_token FROM users WHERE id = ?", (chat_id,))
     result = cursor.fetchone()
     conn.close()
-    return result  # Returns (github_username, github_token)
+    return result
 
-# Monitor contributions and send notifications (Now triggered on login and every 3 hours)
+# Monitor contributions and send notifications
+# async def monitor_contributions(chat_id, context):
+#     result = get_github_username_and_token_from_db(chat_id)
+#     if not result:
+#         print(f"GitHub username or token not found for {chat_id}")
+#         return
+
+#     github_username, github_token = result
+#     commit_count = check_today_contribution(github_username, github_token)
+    
+#     if commit_count > 0:
+#         print(f"User has committed {commit_count} time(s) today.")
+        
+#         commit_message = f"Yay! You've committed {commit_count} time(s) today. Keep it up!"
+#         await send_telegram_notification(chat_id, commit_message, context)
+        
+#         notification_message = generate_notification("gentle", github_username, "gentle")
+#         if notification_message:
+#             await send_telegram_notification(chat_id, notification_message, context)
+
+#         activity_data = fetch_commit_activity(github_username, github_token)
+#         if activity_data:
+#             graph_path = create_contribution_graph(activity_data, github_username)
+#             await send_telegram_notification(chat_id, "Here is your contribution graph:", context, graph_path)
+
+#     else:
+#         current_hour = datetime.now().hour
+#         if current_hour >= 18:
+#             print("Sending harsh notification for inactivity")
+#             harsh_message = "Final Coding Warning: Inactivity Detected. Get coding now!"
+#             await send_telegram_notification(chat_id, harsh_message, context)
+            
+#             notification_message = generate_notification("harsh", github_username, "harsh")
+#             if notification_message:
+#                 await send_telegram_notification(chat_id, notification_message, context)
+
+#     await asyncio.sleep(3 * 3600)
+#     await monitor_contributions(chat_id, context)
+
 async def monitor_contributions(chat_id, context):
-    # Get GitHub username and token from the database
     result = get_github_username_and_token_from_db(chat_id)
     if not result:
         print(f"GitHub username or token not found for {chat_id}")
         return
 
     github_username, github_token = result
-
-    # Proceed with checking contributions only if both username and token are found
     commit_count = check_today_contribution(github_username, github_token)
+    
     if commit_count > 0:
         print(f"User has committed {commit_count} time(s) today.")
         
-        # Send the "commit count" message first with positive notifications
         commit_message = f"Yay! You've committed {commit_count} time(s) today. Keep it up!"
         await send_telegram_notification(chat_id, commit_message, context)
         
-        # Fetch the positive notification (gentle or medium)
         notification_message = generate_notification("gentle", github_username, "gentle")
         if notification_message:
             await send_telegram_notification(chat_id, notification_message, context)
 
-        # Fetch the real activity data from GitHub
         activity_data = fetch_commit_activity(github_username, github_token)
         if activity_data:
-            # Generate contribution graph with the fetched activity data
-            graph_path = create_contribution_graph(activity_data)
-            
-            # Send the graph as a Telegram message
+            graph_path = create_contribution_graph(activity_data, github_username)
             await send_telegram_notification(chat_id, "Here is your contribution graph:", context, graph_path)
 
     else:
-        # If no commits today, send harsh notifications if it's late evening
+        print("No commits today. Sending empty contribution graph.")
+        graph_path = create_contribution_graph([], github_username)  # Pass an empty list for no commits
+        await send_telegram_notification(chat_id, "You haven't made any contributions today. Here's your empty contribution graph:", context, graph_path)
+
+        print("No commits today. Checking for time to send harsh notification.")
         current_hour = datetime.now().hour
-        if current_hour >= 18:  # After 6 PM (Late Evening)
+        if current_hour >= 18:
             print("Sending harsh notification for inactivity")
             harsh_message = "Final Coding Warning: Inactivity Detected. Get coding now!"
             await send_telegram_notification(chat_id, harsh_message, context)
             
-            # Generate harsh notification and send it
             notification_message = generate_notification("harsh", github_username, "harsh")
             if notification_message:
                 await send_telegram_notification(chat_id, notification_message, context)
 
-    # Check again every 3 hours
-    await asyncio.sleep(3 * 3600)  # Sleep for 3 hours
+    await asyncio.sleep(3 * 3600)  # Sleep for 3 hours before checking again
     await monitor_contributions(chat_id, context)
+
 
 # Telegram bot command: start
 async def start(update: Update, context: CallbackContext):
@@ -365,7 +377,6 @@ async def start(update: Update, context: CallbackContext):
 # Telegram bot command: set github info
 async def github_info(update: Update, context: CallbackContext):
     try:
-        # Extract GitHub username and token from the message
         user_input = update.message.text.split()
         if len(user_input) != 3:
             raise ValueError("Please provide both GitHub username and token")
@@ -375,7 +386,6 @@ async def github_info(update: Update, context: CallbackContext):
         telegram_username = update.effective_user.username
         chat_id = update.effective_chat.id
 
-        # Store user's info in the database
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
         cursor.execute("INSERT INTO users (id, telegram_username, github_username, github_token) VALUES (?, ?, ?, ?)", (chat_id, telegram_username, github_username, github_token))
@@ -383,8 +393,6 @@ async def github_info(update: Update, context: CallbackContext):
         conn.close()
 
         await update.message.reply_text(f"GitHub username and token set for {github_username}!")
-
-        # Start monitoring the user's contributions
         await monitor_contributions(chat_id, context)
 
     except Exception as e:
@@ -396,10 +404,8 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("github", github_info))
 
-    # Initialize database and schedule cleanup
     init_database()
 
-    # Start the bot
     application.run_polling()
 
 if __name__ == '__main__':
