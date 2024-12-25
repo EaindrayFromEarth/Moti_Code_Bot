@@ -15,8 +15,10 @@ load_dotenv()
 
 # Constants
 BOT_TOKEN = os.getenv('BOT_TOKEN')  # Your Telegram Bot Token
-DATABASE_PATH = os.path.join(os.getcwd(), "notifications.db")
-IMAGE_PATH = os.path.join(os.getcwd(), "Images")
+DATABASE_PATH = os.getenv('DATABASE_PATH', './notifications.db')  # Default to './notifications.db' if not provided
+IMAGE_PATH = os.getenv('IMAGE_PATH', './Images')  # Default to './Images' if not 
+# DATABASE_PATH = os.path.join(os.getcwd(), "notifications.db")
+# IMAGE_PATH = os.path.join(os.getcwd(), "Images")
 
 # Ensure necessary directories exist
 os.makedirs(IMAGE_PATH, exist_ok=True)
